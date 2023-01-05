@@ -3,6 +3,8 @@ use rodio::{source::Source, Decoder, OutputStream};
 use std::fs::File;
 use std::io::BufReader;
 use std::io::{self, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -35,6 +37,14 @@ struct Args {
 }
 
 fn main() {
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+
+    ctrlc::set_handler(move || {
+        r.store(false, Ordering::SeqCst);
+    })
+    .expect("Error setting Ctrl-C handler");
+
     let args = Args::parse();
     let work_duration = args.work * 60;
     let rest_duration = args.rest * 60;
@@ -46,29 +56,34 @@ fn main() {
     let mut input = String::new();
     io::stdin().read_line(&mut input).unwrap();
 
-    loop {
+    while running.load(Ordering::SeqCst) {
         println!(
             "Starting a Pomodoro for {} minute(s)...",
             work_duration / 60
         );
-        timer(work_duration);
-        play_sound(sound_path.clone());
+        let mut end = timer(work_duration, &running);
+        if !end {
+            play_sound(sound_path.clone());
 
-        println!(
-            "Pomodoro complete! Taking a {} minute break...",
-            rest_duration / 60
-        );
-        timer(rest_duration);
-        play_sound(sound_path.clone());
+            println!(
+                "Pomodoro complete! Taking a {} minute break...",
+                rest_duration / 60
+            );
+            end = timer(rest_duration, &running);
+
+            if !end {
+                play_sound(sound_path.clone());
+            }
+        }
     }
 }
 
-fn timer(duration: u64) {
+fn timer(duration: u64, running: &Arc<AtomicBool>) -> bool {
     let now = Instant::now();
     let end = now + Duration::from_secs(duration);
 
     io::stdout().flush().unwrap();
-    while Instant::now() < end {
+    while Instant::now() < end && running.load(Ordering::SeqCst) {
         let remaining = end - Instant::now();
         print!(
             "\r{:02}:{:02} remaining",
@@ -78,6 +93,7 @@ fn timer(duration: u64) {
         io::stdout().flush().unwrap();
         sleep(Duration::from_secs(1));
     }
+    !running.load(Ordering::SeqCst)
 }
 
 fn play_sound(sound_path: String) {

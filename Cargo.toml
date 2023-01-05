@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 rodio = "0.16.0"
 clap = {version = "4.0.32", features = ["derive"]}
+ctrlc = "3.2.4"
